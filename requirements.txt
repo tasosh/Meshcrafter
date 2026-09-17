@@ -1,0 +1,4 @@
+gradio==6.27.0
+requests==2.33.1
+trimesh==5.1.0
+numpy==2.4.4

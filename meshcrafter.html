@@ -1,0 +1,1224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Meshcrafter — Hugging Face to CAD</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/0.151.1/three.min.js"></script>
+<style>
+  :root{
+    --bg:#0B1620;
+    --panel:#101F2E;
+    --panel-2:#0E1B27;
+    --line:#223247;
+    --line-soft:#1A2A3B;
+    --accent:#C9793B;
+    --accent-soft:#E3A874;
+    --text:#E8ECEF;
+    --text-dim:#8CA0B3;
+    --ok:#6FA98A;
+    --error:#D2685A;
+    --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+    --sans: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    --display: 'Space Grotesk', var(--sans);
+  }
+  @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+  * { box-sizing:border-box; }
+  html,body{ margin:0; height:100%; background:var(--bg); color:var(--text); font-family:var(--sans); }
+  body{ overflow:hidden; }
+
+  .app{
+    display:grid;
+    grid-template-columns: 340px 1fr;
+    height:100vh;
+    width:100vw;
+  }
+  @media (max-width: 760px){
+    .app{ grid-template-columns: 1fr; grid-template-rows: auto 1fr; height:100vh; }
+    .rail{ max-height: 58vh; border-right:none; border-bottom:1px solid var(--line); }
+  }
+
+  /* ---------- Rail ---------- */
+  .rail{
+    background:var(--panel);
+    border-right:1px solid var(--line);
+    overflow-y:auto;
+    display:flex;
+    flex-direction:column;
+  }
+  .brand{
+    padding:20px 20px 14px;
+    border-bottom:1px solid var(--line-soft);
+  }
+  .brand-name{
+    font-family:var(--display);
+    font-weight:700;
+    font-size:19px;
+    letter-spacing:0.2px;
+    display:flex;
+    align-items:baseline;
+    gap:8px;
+  }
+  .brand-name .ver{
+    font-family:var(--mono);
+    font-size:11px;
+    color:var(--text-dim);
+    font-weight:400;
+  }
+  .brand-sub{
+    margin-top:4px;
+    font-size:12.5px;
+    color:var(--text-dim);
+    line-height:1.5;
+  }
+
+  .key-block{
+    padding:16px 20px;
+    border-bottom:1px solid var(--line-soft);
+  }
+  .field{ margin-bottom:12px; }
+  .field:last-child{ margin-bottom:0; }
+  .field label{
+    display:block;
+    font-size:12px;
+    color:var(--text-dim);
+    margin-bottom:6px;
+  }
+  .field input[type=text],
+  .field input[type=password],
+  .field textarea{
+    width:100%;
+    background:var(--panel-2);
+    border:1px solid var(--line);
+    color:var(--text);
+    padding:9px 10px;
+    border-radius:3px;
+    font-family:var(--sans);
+    font-size:13.5px;
+  }
+  .field textarea{ resize:vertical; min-height:64px; line-height:1.4; }
+  .field input:focus-visible, .field textarea:focus-visible, button:focus-visible{
+    outline:2px solid var(--accent-soft);
+    outline-offset:1px;
+  }
+  .key-row{ display:flex; gap:8px; align-items:center; }
+  .key-row input{ flex:1; }
+  .remember{
+    display:flex; align-items:center; gap:7px;
+    margin-top:9px;
+    font-size:12px;
+    color:var(--text-dim);
+  }
+  .remember input{ accent-color:var(--accent); }
+  .key-status{
+    display:flex; align-items:center; gap:6px;
+    margin-top:9px;
+    font-size:11.5px;
+    color:var(--text-dim);
+    font-family:var(--mono);
+  }
+  .dot{ width:6px; height:6px; border-radius:50%; background:var(--line); flex-shrink:0; }
+  .dot.set{ background:var(--ok); }
+
+  /* ---------- Tabs ---------- */
+  .tabs{
+    display:flex;
+    border-bottom:1px solid var(--line-soft);
+    padding:0 20px;
+  }
+  .tab{
+    background:none; border:none; color:var(--text-dim);
+    font-family:var(--sans); font-size:13px; font-weight:500;
+    padding:12px 0; margin-right:20px;
+    cursor:pointer;
+    border-bottom:2px solid transparent;
+    transition: color .15s ease, border-color .15s ease;
+  }
+  .tab.active{ color:var(--text); border-bottom-color:var(--accent); }
+  .tab:hover{ color:var(--text); }
+
+  .panel{ padding:18px 20px; display:none; flex-direction:column; gap:12px; }
+  .panel.active{ display:flex; }
+
+  .help{ font-size:11.5px; color:var(--text-dim); line-height:1.5; }
+
+  .dropzone{
+    border:1px dashed var(--line);
+    border-radius:4px;
+    padding:18px 14px;
+    text-align:center;
+    cursor:pointer;
+    color:var(--text-dim);
+    font-size:12.5px;
+    transition: border-color .15s ease, color .15s ease;
+  }
+  .dropzone:hover, .dropzone.drag{ border-color:var(--accent); color:var(--text); }
+  .dropzone .fname{ margin-top:6px; color:var(--accent-soft); font-family:var(--mono); font-size:11.5px; word-break:break-all; }
+
+  .btn{
+    font-family:var(--sans);
+    font-weight:600;
+    font-size:13px;
+    padding:10px 14px;
+    border-radius:3px;
+    border:1px solid transparent;
+    cursor:pointer;
+    transition: background .15s ease, border-color .15s ease, opacity .15s ease;
+  }
+  .btn-primary{ background:var(--accent); color:#1A1004; }
+  .btn-primary:hover{ background:var(--accent-soft); }
+  .btn-primary:disabled{ opacity:0.45; cursor:not-allowed; }
+  .btn-ghost{ background:transparent; border-color:var(--line); color:var(--text); }
+  .btn-ghost:hover{ border-color:var(--accent); }
+  .btn-row{ display:flex; gap:8px; flex-wrap:wrap; }
+
+  .status-msg{
+    font-size:12.5px;
+    padding:9px 10px;
+    border-radius:3px;
+    border:1px solid var(--line);
+    line-height:1.5;
+  }
+  .status-msg.loading{ color:var(--text-dim); }
+  .status-msg.error{ color:var(--error); border-color:#4A2B27; background:#1C1210; }
+  .status-msg.ok{ color:var(--ok); border-color:#233A30; background:#0F1D17; }
+
+  .rail-footer{ margin-top:auto; padding:14px 20px; font-size:11px; color:var(--text-dim); border-top:1px solid var(--line-soft); line-height:1.6; }
+
+  /* ---------- Viewport ---------- */
+  .viewport{ position:relative; background:radial-gradient(ellipse at 50% 30%, #0F1E2C 0%, #081019 100%); overflow:hidden; }
+  .viewport canvas{ display:block; width:100%; height:100%; touch-action:none; }
+
+  .topbar{
+    position:absolute; top:0; left:0; right:0;
+    display:flex; align-items:center; justify-content:space-between;
+    padding:10px 16px;
+    font-size:11.5px; color:var(--text-dim);
+    font-family:var(--mono);
+    pointer-events:none;
+  }
+  .topbar .mode-pill{
+    background:rgba(16,31,46,0.85);
+    border:1px solid var(--line);
+    padding:4px 9px;
+    border-radius:3px;
+    pointer-events:auto;
+  }
+  .view-toggles{ display:flex; gap:6px; pointer-events:auto; }
+  .icon-btn{
+    background:rgba(16,31,46,0.85);
+    border:1px solid var(--line);
+    color:var(--text-dim);
+    font-family:var(--sans);
+    font-size:11.5px;
+    padding:5px 10px;
+    border-radius:3px;
+    cursor:pointer;
+  }
+  .icon-btn:hover{ color:var(--text); border-color:var(--accent); }
+  .icon-btn.on{ color:var(--accent-soft); border-color:var(--accent); }
+
+  .empty-state{
+    position:absolute; inset:0;
+    display:flex; align-items:center; justify-content:center;
+    flex-direction:column; gap:8px;
+    text-align:center; padding:20px;
+    color:var(--text-dim);
+    pointer-events:none;
+  }
+  .empty-state.hidden{ display:none; }
+  .empty-state h2{ font-family:var(--display); font-size:17px; color:var(--text); font-weight:600; margin:0; }
+  .empty-state p{ font-size:13px; max-width:340px; margin:0; line-height:1.6; }
+
+  .statusbar{
+    position:absolute; left:0; right:0; bottom:0;
+    display:flex; align-items:center; justify-content:space-between;
+    gap:16px;
+    padding:10px 16px;
+    background:rgba(16,31,46,0.9);
+    border-top:1px solid var(--line);
+    font-family:var(--mono);
+    font-size:12px;
+    flex-wrap:wrap;
+  }
+  .statusbar .reads{ display:flex; gap:18px; color:var(--text-dim); flex-wrap:wrap; }
+  .statusbar .reads b{ color:var(--text); font-weight:500; }
+  .statusbar .exports{ display:flex; gap:8px; }
+
+  ::-webkit-scrollbar{ width:9px; height:9px; }
+  ::-webkit-scrollbar-track{ background:var(--panel); }
+  ::-webkit-scrollbar-thumb{ background:var(--line); border-radius:5px; }
+
+  @media (prefers-reduced-motion: reduce){
+    *{ transition:none !important; }
+  }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <!-- ================= RAIL ================= -->
+  <div class="rail">
+    <div class="brand">
+      <div class="brand-name">Meshcrafter <span class="ver">v0.1</span></div>
+      <div class="brand-sub">Generate or load a 3D mesh, then export it as STL for CAD and printing.</div>
+    </div>
+
+    <div class="key-block">
+      <div class="field">
+        <label for="apiKey">Hugging Face API key</label>
+        <div class="key-row">
+          <input type="password" id="apiKey" placeholder="hf_..." autocomplete="off">
+        </div>
+      </div>
+      <label class="remember">
+        <input type="checkbox" id="rememberKey">
+        Remember on this device
+      </label>
+      <div class="key-status">
+        <span class="dot" id="keyDot"></span>
+        <span id="keyStatusText">No key entered</span>
+      </div>
+    </div>
+
+    <div class="tabs">
+      <button class="tab active" data-mode="text">Text</button>
+      <button class="tab" data-mode="image">Image</button>
+      <button class="tab" data-mode="upload">Upload</button>
+    </div>
+
+    <!-- TEXT PANEL -->
+    <div class="panel active" id="panel-text">
+      <div class="field">
+        <label for="textPrompt">Describe the object</label>
+        <textarea id="textPrompt" placeholder="a low-poly mechanical gear, 40mm diameter"></textarea>
+      </div>
+      <div class="field">
+        <label for="textModel">Model repo id or endpoint URL</label>
+        <input type="text" id="textModel" placeholder="org/model-name or https://your-endpoint">
+      </div>
+      <div class="help">Calls the Hugging Face Inference API (or a custom Inference Endpoint URL you paste here). The model must return a mesh — GLB, OBJ, STL, or PLY. Not every text-to-3D model is served on the free Inference API; check the model card first.</div>
+      <div class="btn-row">
+        <button class="btn btn-primary" id="genTextBtn">Generate model</button>
+      </div>
+      <div id="textStatus"></div>
+    </div>
+
+    <!-- IMAGE PANEL -->
+    <div class="panel" id="panel-image">
+      <div class="field">
+        <label>Source image</label>
+        <div class="dropzone" id="imageDropzone">
+          Drop an image, or click to browse
+          <div class="fname" id="imageFname"></div>
+        </div>
+        <input type="file" id="imageFile" accept="image/*" style="display:none">
+      </div>
+      <div class="field">
+        <label for="imageModel">Model repo id or endpoint URL</label>
+        <input type="text" id="imageModel" placeholder="org/model-name or https://your-endpoint">
+      </div>
+      <div class="help">Sends the image bytes to the model's Inference API endpoint and expects a mesh back (GLB, OBJ, STL, or PLY).</div>
+      <div class="btn-row">
+        <button class="btn btn-primary" id="genImageBtn" disabled>Generate model</button>
+      </div>
+      <div id="imageStatus"></div>
+    </div>
+
+    <!-- UPLOAD PANEL -->
+    <div class="panel" id="panel-upload">
+      <div class="field">
+        <label>3D file</label>
+        <div class="dropzone" id="uploadDropzone">
+          Drop a .stl, .obj, .ply or .glb, or click to browse
+          <div class="fname" id="uploadFname"></div>
+        </div>
+        <input type="file" id="uploadFile" accept=".stl,.obj,.ply,.glb,.gltf" style="display:none">
+      </div>
+      <div class="help">Loads straight into the viewer — no API call needed. Use Export STL any time to convert it.</div>
+      <div class="field" style="margin-top:4px;">
+        <label for="uploadModel">Optional: send to a model for detailing / refinement</label>
+        <input type="text" id="uploadModel" placeholder="org/model-name or https://your-endpoint">
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-ghost" id="refineBtn" disabled>Send to model</button>
+      </div>
+      <div id="uploadStatus"></div>
+    </div>
+
+    <div class="rail-footer">
+      Drag any supported file onto the viewport at any time to load it. Your API key is only kept in this browser tab, or in this artifact's private storage on this device if you choose to remember it — it is never sent anywhere except directly to huggingface.co.
+    </div>
+  </div>
+
+  <!-- ================= VIEWPORT ================= -->
+  <div class="viewport" id="viewport">
+    <canvas id="canvas"></canvas>
+
+    <div class="topbar">
+      <div class="mode-pill" id="modePill">idle</div>
+      <div class="view-toggles">
+        <button class="icon-btn" id="wireBtn">Wireframe</button>
+        <button class="icon-btn" id="resetViewBtn">Reset view</button>
+      </div>
+    </div>
+
+    <div class="empty-state" id="emptyState">
+      <h2>Nothing loaded yet</h2>
+      <p>Generate a model from a prompt or image, or drop in an existing STL, OBJ, PLY, or GLB file to view and re-export it.</p>
+    </div>
+
+    <div class="statusbar" id="statusbar" style="display:none;">
+      <div class="reads">
+        <span>verts <b id="readVerts">—</b></span>
+        <span>faces <b id="readFaces">—</b></span>
+        <span>size <b id="readSize">—</b></span>
+      </div>
+      <div class="exports">
+        <button class="btn btn-ghost" id="downloadOrigBtn">Download original</button>
+        <button class="btn btn-primary" id="exportStlBtn">Export STL</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  'use strict';
+
+  /* ============================================================
+     STATE
+  ============================================================ */
+  var state = {
+    mode: 'text',
+    apiKey: '',
+    lastRawBuffer: null,
+    lastRawExt: 'bin',
+    currentObject: null,   // THREE.Mesh or THREE.Points currently shown
+    isPoints: false
+  };
+
+  /* ============================================================
+     DOM refs
+  ============================================================ */
+  var apiKeyInput = document.getElementById('apiKey');
+  var rememberKey = document.getElementById('rememberKey');
+  var keyDot = document.getElementById('keyDot');
+  var keyStatusText = document.getElementById('keyStatusText');
+
+  var tabs = document.querySelectorAll('.tab');
+  var panels = {
+    text: document.getElementById('panel-text'),
+    image: document.getElementById('panel-image'),
+    upload: document.getElementById('panel-upload')
+  };
+
+  var textPrompt = document.getElementById('textPrompt');
+  var textModel = document.getElementById('textModel');
+  var genTextBtn = document.getElementById('genTextBtn');
+  var textStatus = document.getElementById('textStatus');
+
+  var imageDropzone = document.getElementById('imageDropzone');
+  var imageFile = document.getElementById('imageFile');
+  var imageFname = document.getElementById('imageFname');
+  var imageModel = document.getElementById('imageModel');
+  var genImageBtn = document.getElementById('genImageBtn');
+  var imageStatus = document.getElementById('imageStatus');
+  var pendingImageFile = null;
+
+  var uploadDropzone = document.getElementById('uploadDropzone');
+  var uploadFile = document.getElementById('uploadFile');
+  var uploadFname = document.getElementById('uploadFname');
+  var uploadModel = document.getElementById('uploadModel');
+  var refineBtn = document.getElementById('refineBtn');
+  var uploadStatus = document.getElementById('uploadStatus');
+  var pendingUploadFile = null;
+
+  var modePill = document.getElementById('modePill');
+  var emptyState = document.getElementById('emptyState');
+  var statusbar = document.getElementById('statusbar');
+  var readVerts = document.getElementById('readVerts');
+  var readFaces = document.getElementById('readFaces');
+  var readSize = document.getElementById('readSize');
+  var exportStlBtn = document.getElementById('exportStlBtn');
+  var downloadOrigBtn = document.getElementById('downloadOrigBtn');
+  var wireBtn = document.getElementById('wireBtn');
+  var resetViewBtn = document.getElementById('resetViewBtn');
+
+  /* ============================================================
+     API key handling (persist only if user opts in)
+  ============================================================ */
+  function refreshKeyStatus(){
+    var has = apiKeyInput.value.trim().length > 0;
+    keyDot.classList.toggle('set', has);
+    keyStatusText.textContent = has ? 'Key ready' : 'No key entered';
+  }
+
+  (function initKey(){
+    try {
+      window.storage.get('hf_api_key', false).then(function(res){
+        if(res && res.value){
+          apiKeyInput.value = res.value;
+          rememberKey.checked = true;
+          refreshKeyStatus();
+        }
+      }).catch(function(){ /* nothing stored */ });
+    } catch(e){ /* storage unavailable */ }
+  })();
+
+  function persistKey(){
+    if(rememberKey.checked){
+      try { window.storage.set('hf_api_key', apiKeyInput.value, false); } catch(e){}
+    } else {
+      try { window.storage.delete('hf_api_key', false); } catch(e){}
+    }
+  }
+  apiKeyInput.addEventListener('input', function(){ refreshKeyStatus(); persistKey(); });
+  rememberKey.addEventListener('change', persistKey);
+  refreshKeyStatus();
+
+  /* ============================================================
+     Tabs
+  ============================================================ */
+  tabs.forEach(function(tab){
+    tab.addEventListener('click', function(){
+      tabs.forEach(function(t){ t.classList.remove('active'); });
+      tab.classList.add('active');
+      Object.keys(panels).forEach(function(k){ panels[k].classList.remove('active'); });
+      state.mode = tab.dataset.mode;
+      panels[state.mode].classList.add('active');
+    });
+  });
+
+  /* ============================================================
+     Status message helpers
+  ============================================================ */
+  function setStatus(el, kind, msg){
+    if(!msg){ el.innerHTML = ''; return; }
+    el.innerHTML = '<div class="status-msg ' + kind + '">' + msg + '</div>';
+  }
+
+  /* ============================================================
+     THREE.JS SCENE
+  ============================================================ */
+  var canvas = document.getElementById('canvas');
+  var viewportEl = document.getElementById('viewport');
+  var renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias:true, alpha:true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+
+  var scene = new THREE.Scene();
+  var camera = new THREE.PerspectiveCamera(45, 1, 0.01, 5000);
+
+  var hemi = new THREE.HemisphereLight(0xdfe9f2, 0x0a0f14, 0.9);
+  scene.add(hemi);
+  var key1 = new THREE.DirectionalLight(0xffffff, 1.0);
+  key1.position.set(4,6,5);
+  scene.add(key1);
+  var key2 = new THREE.DirectionalLight(0x88a6c2, 0.4);
+  key2.position.set(-5,-2,-4);
+  scene.add(key2);
+
+  var grid = new THREE.GridHelper(20, 20, 0x2a3d54, 0x1a2a3b);
+  grid.position.y = -0.001;
+  scene.add(grid);
+
+  var meshMaterial = new THREE.MeshStandardMaterial({ color: 0x9fb4c7, metalness:0.15, roughness:0.55, flatShading:false });
+  var pointsMaterial = new THREE.PointsMaterial({ color: 0xe3a874, size: 0.02 });
+
+  function resizeRenderer(){
+    var w = viewportEl.clientWidth, h = viewportEl.clientHeight;
+    renderer.setSize(w, h, false);
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+  }
+  new ResizeObserver(resizeRenderer).observe(viewportEl);
+  resizeRenderer();
+
+  /* ---------- custom orbit-style controls ---------- */
+  function createControls(camera, dom){
+    var target = new THREE.Vector3(0,0,0);
+    var radius = 6, theta = Math.PI/4, phi = Math.PI/3.2;
+    var dragging = false, panMode = false, lastX=0, lastY=0;
+    var minPhi = 0.06, maxPhi = Math.PI - 0.06;
+
+    function apply(){
+      var sr = radius * Math.sin(phi);
+      camera.position.set(
+        target.x + sr * Math.sin(theta),
+        target.y + radius * Math.cos(phi),
+        target.z + sr * Math.cos(theta)
+      );
+      camera.lookAt(target);
+    }
+
+    dom.addEventListener('pointerdown', function(e){
+      dragging = true;
+      panMode = (e.button === 2) || e.shiftKey;
+      lastX = e.clientX; lastY = e.clientY;
+      dom.setPointerCapture(e.pointerId);
+    });
+    dom.addEventListener('pointermove', function(e){
+      if(!dragging) return;
+      var dx = e.clientX - lastX, dy = e.clientY - lastY;
+      lastX = e.clientX; lastY = e.clientY;
+      if(panMode){
+        camera.updateMatrixWorld();
+        var right = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0);
+        var up = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 1);
+        var panSpeed = radius * 0.0016;
+        target.addScaledVector(right, -dx * panSpeed);
+        target.addScaledVector(up, dy * panSpeed);
+      } else {
+        theta -= dx * 0.006;
+        phi -= dy * 0.006;
+        phi = Math.max(minPhi, Math.min(maxPhi, phi));
+      }
+      apply();
+    });
+    ['pointerup','pointerleave','pointercancel'].forEach(function(evt){
+      dom.addEventListener(evt, function(){ dragging = false; });
+    });
+    dom.addEventListener('wheel', function(e){
+      e.preventDefault();
+      radius *= (1 + e.deltaY * 0.0012);
+      radius = Math.max(0.05, Math.min(4000, radius));
+      apply();
+    }, { passive:false });
+    dom.addEventListener('contextmenu', function(e){ e.preventDefault(); });
+
+    apply();
+    return {
+      setTarget: function(t, r){ target.copy(t); radius = r; apply(); },
+      target: target
+    };
+  }
+  var controls = createControls(camera, canvas);
+
+  function fitViewTo(object3d){
+    var box = new THREE.Box3().setFromObject(object3d);
+    var size = new THREE.Vector3(); box.getSize(size);
+    var center = new THREE.Vector3(); box.getCenter(center);
+    var maxDim = Math.max(size.x, size.y, size.z) || 1;
+    var dist = maxDim * 1.9;
+    camera.near = Math.max(maxDim / 1000, 0.001);
+    camera.far = maxDim * 200 + dist * 2;
+    camera.updateProjectionMatrix();
+    controls.setTarget(center, dist);
+  }
+
+  (function animate(){
+    requestAnimationFrame(animate);
+    renderer.render(scene, camera);
+  })();
+
+  /* ============================================================
+     PARSERS
+  ============================================================ */
+  function buildGeoFromArrays(positionsFlat, normalsFlat, indices){
+    var geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(positionsFlat), 3));
+    if(normalsFlat && normalsFlat.length){
+      geo.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(normalsFlat), 3));
+    }
+    if(indices && indices.length){
+      geo.setIndex(indices);
+    }
+    if(!geo.attributes.normal){
+      geo.computeVertexNormals();
+    }
+    return geo;
+  }
+
+  function parseBinarySTL(buffer){
+    var dv = new DataView(buffer);
+    var triCount = dv.getUint32(80, true);
+    var positions = new Float32Array(triCount * 9);
+    var normals = new Float32Array(triCount * 9);
+    var offset = 84;
+    for(var i=0;i<triCount;i++){
+      var nx = dv.getFloat32(offset, true), ny = dv.getFloat32(offset+4, true), nz = dv.getFloat32(offset+8, true);
+      offset += 12;
+      for(var v=0; v<3; v++){
+        var px = dv.getFloat32(offset, true), py = dv.getFloat32(offset+4, true), pz = dv.getFloat32(offset+8, true);
+        offset += 12;
+        var idx = (i*3+v) * 3;
+        positions[idx]=px; positions[idx+1]=py; positions[idx+2]=pz;
+        normals[idx]=nx; normals[idx+1]=ny; normals[idx+2]=nz;
+      }
+      offset += 2;
+    }
+    var geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(positions,3));
+    geo.setAttribute('normal', new THREE.BufferAttribute(normals,3));
+    return geo;
+  }
+
+  function parseAsciiSTL(text){
+    var positions = [], normals = [];
+    var chunks = text.split(/facet normal/i).slice(1);
+    chunks.forEach(function(chunk){
+      var nm = chunk.match(/(-?[\d.eE+]+)\s+(-?[\d.eE+]+)\s+(-?[\d.eE+]+)/);
+      var n = nm ? [parseFloat(nm[1]), parseFloat(nm[2]), parseFloat(nm[3])] : [0,0,0];
+      var vertMatches = chunk.match(/vertex\s+(-?[\d.eE+]+)\s+(-?[\d.eE+]+)\s+(-?[\d.eE+]+)/g) || [];
+      vertMatches.forEach(function(vm){
+        var p = vm.replace(/vertex\s+/i,'').trim().split(/\s+/).map(Number);
+        positions.push(p[0], p[1], p[2]);
+        normals.push(n[0], n[1], n[2]);
+      });
+    });
+    if(!positions.length) throw new Error('No triangles found in this STL file.');
+    return buildGeoFromArrays(positions, normals, null);
+  }
+
+  function parseSTL(buffer){
+    if(buffer.byteLength >= 84){
+      var dv = new DataView(buffer);
+      var triCount = dv.getUint32(80, true);
+      if(84 + triCount*50 === buffer.byteLength && triCount > 0){
+        return parseBinarySTL(buffer);
+      }
+    }
+    var text = new TextDecoder('utf-8', {fatal:false}).decode(new Uint8Array(buffer));
+    return parseAsciiSTL(text);
+  }
+
+  function parseOBJ(text){
+    var verts = [], norms = [];
+    var facePos = [], faceNorm = [];
+    var lines = text.split(/\r?\n/);
+    for(var li=0; li<lines.length; li++){
+      var t = lines[li].trim();
+      if(t.indexOf('v ') === 0){
+        var p = t.slice(2).trim().split(/\s+/).map(Number);
+        verts.push([p[0],p[1],p[2]]);
+      } else if(t.indexOf('vn ') === 0){
+        var pn = t.slice(3).trim().split(/\s+/).map(Number);
+        norms.push([pn[0],pn[1],pn[2]]);
+      } else if(t.indexOf('f ') === 0){
+        var parts = t.slice(2).trim().split(/\s+/);
+        var idx = parts.map(function(p){
+          var bits = p.split('/');
+          var vi = parseInt(bits[0], 10);
+          var ni = bits[2] ? parseInt(bits[2], 10) : null;
+          return {
+            vi: vi > 0 ? vi - 1 : verts.length + vi,
+            ni: ni ? (ni > 0 ? ni - 1 : norms.length + ni) : null
+          };
+        });
+        for(var k=1; k<idx.length-1; k++){
+          [idx[0], idx[k], idx[k+1]].forEach(function(ix){
+            facePos.push(verts[ix.vi]);
+            faceNorm.push(ix.ni != null && norms[ix.ni] ? norms[ix.ni] : null);
+          });
+        }
+      }
+    }
+    if(!facePos.length) throw new Error('No faces found in this OBJ file.');
+    var positions = [];
+    facePos.forEach(function(v){ positions.push(v[0], v[1], v[2]); });
+    var allHaveNormals = faceNorm.every(function(n){ return !!n; });
+    var normals = null;
+    if(allHaveNormals){
+      normals = [];
+      faceNorm.forEach(function(n){ normals.push(n[0], n[1], n[2]); });
+    }
+    return buildGeoFromArrays(positions, normals, null);
+  }
+
+  var PLY_TYPE_SIZE = { char:1, uchar:1, int8:1, uint8:1, short:2, ushort:2, int16:2, uint16:2,
+    int:4, uint:4, int32:4, uint32:4, float:4, float32:4, double:8, float64:8 };
+
+  function readPLYScalar(dv, offset, type, little){
+    switch(type){
+      case 'char': case 'int8': return [dv.getInt8(offset), 1];
+      case 'uchar': case 'uint8': return [dv.getUint8(offset), 1];
+      case 'short': case 'int16': return [dv.getInt16(offset, little), 2];
+      case 'ushort': case 'uint16': return [dv.getUint16(offset, little), 2];
+      case 'int': case 'int32': return [dv.getInt32(offset, little), 4];
+      case 'uint': case 'uint32': return [dv.getUint32(offset, little), 4];
+      case 'float': case 'float32': return [dv.getFloat32(offset, little), 4];
+      case 'double': case 'float64': return [dv.getFloat64(offset, little), 8];
+      default: throw new Error('Unsupported PLY property type: ' + type);
+    }
+  }
+
+  function parsePLY(buffer){
+    var bytes = new Uint8Array(buffer);
+    var fullText = new TextDecoder('utf-8', {fatal:false}).decode(bytes);
+    var endIdx = fullText.indexOf('end_header');
+    if(endIdx === -1) throw new Error('This PLY file has no end_header marker.');
+    var headerStr = fullText.slice(0, endIdx + 'end_header'.length);
+    var dataStart = endIdx + 'end_header'.length;
+    if(fullText[dataStart] === '\r') dataStart++;
+    if(fullText[dataStart] === '\n') dataStart++;
+
+    var lines = headerStr.split(/\r?\n/).map(function(l){ return l.trim(); }).filter(Boolean);
+    var format = 'ascii';
+    var elements = [];
+    var current = null;
+    lines.forEach(function(line){
+      if(line.indexOf('format') === 0){
+        format = line.split(/\s+/)[1];
+      } else if(line.indexOf('element') === 0){
+        var parts = line.split(/\s+/);
+        current = { name: parts[1], count: parseInt(parts[2],10), properties: [] };
+        elements.push(current);
+      } else if(line.indexOf('property') === 0 && current){
+        var pp = line.split(/\s+/);
+        if(pp[1] === 'list'){
+          current.properties.push({ list:true, countType:pp[2], itemType:pp[3], name:pp[4] });
+        } else {
+          current.properties.push({ list:false, type:pp[1], name:pp[2] });
+        }
+      }
+    });
+
+    var vertexEl = elements.filter(function(e){ return e.name === 'vertex'; })[0];
+    var faceEl = elements.filter(function(e){ return e.name === 'face'; })[0];
+    if(!vertexEl) throw new Error('This PLY file has no vertex element.');
+
+    var positions = [], normals = [], hasNormals = false, faces = [];
+
+    if(format === 'ascii'){
+      var dataText = fullText.slice(dataStart).trim();
+      var tokens = dataText.length ? dataText.split(/\s+/) : [];
+      var ti = 0;
+      hasNormals = vertexEl.properties.some(function(p){ return p.name === 'nx'; });
+      for(var i=0;i<vertexEl.count;i++){
+        var rec = {};
+        vertexEl.properties.forEach(function(prop){ rec[prop.name] = parseFloat(tokens[ti++]); });
+        positions.push(rec.x, rec.y, rec.z);
+        if(hasNormals) normals.push(rec.nx, rec.ny, rec.nz);
+      }
+      if(faceEl){
+        for(var f=0; f<faceEl.count; f++){
+          var n = parseInt(tokens[ti++], 10);
+          var idxs = [];
+          for(var k=0;k<n;k++) idxs.push(parseInt(tokens[ti++], 10));
+          for(var m=1; m<idxs.length-1; m++) faces.push(idxs[0], idxs[m], idxs[m+1]);
+        }
+      }
+    } else {
+      var little = format.indexOf('little') !== -1;
+      var dv = new DataView(buffer);
+      var offset = dataStart;
+      hasNormals = vertexEl.properties.some(function(p){ return p.name === 'nx'; });
+      for(var vi=0; vi<vertexEl.count; vi++){
+        var rec2 = {};
+        vertexEl.properties.forEach(function(prop){
+          var res = readPLYScalar(dv, offset, prop.type, little);
+          rec2[prop.name] = res[0];
+          offset += res[1];
+        });
+        positions.push(rec2.x, rec2.y, rec2.z);
+        if(hasNormals) normals.push(rec2.nx, rec2.ny, rec2.nz);
+      }
+      if(faceEl){
+        var listProp = faceEl.properties.filter(function(p){ return p.list; })[0];
+        for(var fi=0; fi<faceEl.count; fi++){
+          var cr = readPLYScalar(dv, offset, listProp.countType, little);
+          var count = cr[0]; offset += cr[1];
+          var idxs2 = [];
+          for(var kk=0; kk<count; kk++){
+            var ir = readPLYScalar(dv, offset, listProp.itemType, little);
+            idxs2.push(ir[0]); offset += ir[1];
+          }
+          for(var mm=1; mm<idxs2.length-1; mm++) faces.push(idxs2[0], idxs2[mm], idxs2[mm+1]);
+        }
+      }
+    }
+
+    var isPointCloud = !faceEl || faces.length === 0;
+    var geo = buildGeoFromArrays(positions, hasNormals ? normals : null, isPointCloud ? null : faces);
+    return { geometry: geo, isPointCloud: isPointCloud };
+  }
+
+  function getGLTFAccessorData(json, bin, accessorIndex){
+    var acc = json.accessors[accessorIndex];
+    var bv = json.bufferViews[acc.bufferView];
+    var compTypeMap = { 5120:Int8Array, 5121:Uint8Array, 5122:Int16Array, 5123:Uint16Array, 5125:Uint32Array, 5126:Float32Array };
+    var numComponents = { SCALAR:1, VEC2:2, VEC3:3, VEC4:4, MAT4:16 }[acc.type];
+    var ArrType = compTypeMap[acc.componentType];
+    var byteOffset = (bv.byteOffset || 0) + (acc.byteOffset || 0);
+    var count = acc.count * numComponents;
+    return new ArrType(bin.slice(byteOffset, byteOffset + count * ArrType.BYTES_PER_ELEMENT));
+  }
+
+  function buildGeometryFromGLTF(json, bin){
+    if(!bin){
+      var buf0 = json.buffers && json.buffers[0];
+      if(buf0 && buf0.uri && buf0.uri.indexOf('data:') === 0){
+        var base64 = buf0.uri.split(',')[1];
+        var binStr = atob(base64);
+        var arr = new Uint8Array(binStr.length);
+        for(var i=0;i<binStr.length;i++) arr[i] = binStr.charCodeAt(i);
+        bin = arr.buffer;
+      } else {
+        throw new Error('This glTF references external files, which aren\'t supported here. Export as a single .glb file instead.');
+      }
+    }
+    var mesh = json.meshes && json.meshes[0];
+    if(!mesh) throw new Error('No mesh found in this file.');
+    var prim = mesh.primitives[0];
+    var geo = new THREE.BufferGeometry();
+    if(prim.attributes.POSITION == null) throw new Error('This mesh has no position data.');
+    geo.setAttribute('position', new THREE.BufferAttribute(getGLTFAccessorData(json, bin, prim.attributes.POSITION), 3));
+    if(prim.attributes.NORMAL != null){
+      geo.setAttribute('normal', new THREE.BufferAttribute(getGLTFAccessorData(json, bin, prim.attributes.NORMAL), 3));
+    }
+    if(prim.indices != null){
+      geo.setIndex(new THREE.BufferAttribute(getGLTFAccessorData(json, bin, prim.indices), 1));
+    }
+    if(!geo.attributes.normal) geo.computeVertexNormals();
+    return geo;
+  }
+
+  function parseGLB(buffer){
+    var dv = new DataView(buffer);
+    var magic = dv.getUint32(0, true);
+    if(magic !== 0x46546C67) throw new Error('Not a valid GLB file.');
+    var length = dv.getUint32(8, true);
+    var offset = 12;
+    var json = null, bin = null;
+    while(offset < length){
+      var chunkLength = dv.getUint32(offset, true); offset += 4;
+      var chunkType = dv.getUint32(offset, true); offset += 4;
+      var chunkData = buffer.slice(offset, offset + chunkLength);
+      if(chunkType === 0x4E4F534A){ json = JSON.parse(new TextDecoder().decode(chunkData)); }
+      else if(chunkType === 0x004E4942){ bin = chunkData; }
+      offset += chunkLength;
+    }
+    if(!json) throw new Error('This GLB file has no JSON chunk.');
+    return buildGeometryFromGLTF(json, bin);
+  }
+
+  function detectAndParse(buffer){
+    var bytes = new Uint8Array(buffer);
+
+    // JSON payload (either an error message, or an embedded glTF)
+    if(bytes.length && bytes[0] === 0x7B){
+      var asText = new TextDecoder('utf-8', {fatal:false}).decode(bytes);
+      try {
+        var json = JSON.parse(asText);
+        if(json && json.error){
+          var extra = json.estimated_time ? (' (about ' + Math.round(json.estimated_time) + 's)') : '';
+          throw new Error(String(json.error) + extra);
+        }
+        if(json && json.asset && (json.meshes || json.scenes)){
+          return { geometry: buildGeometryFromGLTF(json, null), isPointCloud:false };
+        }
+        throw new Error('This model returned JSON without mesh data — check its output type on the model card.');
+      } catch(e){
+        throw e;
+      }
+    }
+
+    // GLB
+    if(bytes.length >= 4){
+      var magicStr = String.fromCharCode(bytes[0], bytes[1], bytes[2], bytes[3]);
+      if(magicStr === 'glTF'){
+        return { geometry: parseGLB(buffer), isPointCloud:false };
+      }
+    }
+
+    // Binary STL
+    if(buffer.byteLength >= 84){
+      var dv = new DataView(buffer);
+      var triCount = dv.getUint32(80, true);
+      if(84 + triCount*50 === buffer.byteLength && triCount > 0){
+        return { geometry: parseBinarySTL(buffer), isPointCloud:false };
+      }
+    }
+
+    var text = new TextDecoder('utf-8', {fatal:false}).decode(bytes);
+    var trimmed = text.trim();
+
+    if(/^solid[\s\S]*facet/i.test(trimmed) || (trimmed.slice(0,5).toLowerCase() === 'solid')){
+      return { geometry: parseAsciiSTL(text), isPointCloud:false };
+    }
+    if(trimmed.slice(0,3).toLowerCase() === 'ply'){
+      return parsePLY(buffer);
+    }
+    if(/(^|\n)\s*v\s+-?[\d.]/.test(text) && /(^|\n)\s*f\s+\d/.test(text)){
+      return { geometry: parseOBJ(text), isPointCloud:false };
+    }
+
+    throw new Error('Format not recognized. Supported: GLB, OBJ, STL, PLY.');
+  }
+
+  /* ============================================================
+     SCENE LOADING
+  ============================================================ */
+  function clearCurrentObject(){
+    if(state.currentObject){
+      scene.remove(state.currentObject);
+      if(state.currentObject.geometry) state.currentObject.geometry.dispose();
+      state.currentObject = null;
+    }
+  }
+
+  function showModel(geometry, isPointCloud, extLabel, rawBuffer){
+    clearCurrentObject();
+    var obj;
+    if(isPointCloud){
+      obj = new THREE.Points(geometry, pointsMaterial);
+    } else {
+      obj = new THREE.Mesh(geometry, meshMaterial.clone());
+      obj.material.wireframe = wireBtn.classList.contains('on');
+    }
+    scene.add(obj);
+    state.currentObject = obj;
+    state.isPoints = isPointCloud;
+    state.lastRawBuffer = rawBuffer || null;
+    state.lastRawExt = extLabel || 'bin';
+
+    fitViewTo(obj);
+
+    emptyState.classList.add('hidden');
+    statusbar.style.display = 'flex';
+    modePill.textContent = isPointCloud ? 'point cloud' : 'mesh loaded';
+
+    var vcount = geometry.attributes.position.count;
+    var fcount = geometry.index ? geometry.index.count/3 : Math.floor(vcount/3);
+    var box = new THREE.Box3().setFromObject(obj);
+    var size = new THREE.Vector3(); box.getSize(size);
+
+    readVerts.textContent = vcount.toLocaleString();
+    readFaces.textContent = isPointCloud ? '—' : fcount.toLocaleString();
+    readSize.textContent = size.x.toFixed(2) + ' × ' + size.y.toFixed(2) + ' × ' + size.z.toFixed(2);
+
+    exportStlBtn.disabled = isPointCloud;
+    exportStlBtn.title = isPointCloud ? 'A point cloud has no surface to export as STL' : '';
+    downloadOrigBtn.style.display = rawBuffer ? 'inline-block' : 'none';
+  }
+
+  /* ============================================================
+     STL EXPORT
+  ============================================================ */
+  function exportSTLBlob(geometry){
+    var pos = geometry.attributes.position;
+    var index = geometry.index;
+    var triCount = index ? index.count/3 : Math.floor(pos.count/3);
+    var buf = new ArrayBuffer(84 + triCount*50);
+    var dv = new DataView(buf);
+    var header = 'Meshcrafter export';
+    for(var i=0;i<Math.min(header.length,80);i++) dv.setUint8(i, header.charCodeAt(i));
+    dv.setUint32(80, triCount, true);
+
+    var a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
+    var ab = new THREE.Vector3(), cb = new THREE.Vector3();
+    function getVert(i, out){
+      var idx = index ? index.getX(i) : i;
+      out.set(pos.getX(idx), pos.getY(idx), pos.getZ(idx));
+    }
+    var offset = 84;
+    for(var t=0;t<triCount;t++){
+      getVert(t*3, a); getVert(t*3+1, b); getVert(t*3+2, c);
+      cb.subVectors(c,b); ab.subVectors(a,b); cb.cross(ab).normalize();
+      dv.setFloat32(offset, cb.x, true); dv.setFloat32(offset+4, cb.y, true); dv.setFloat32(offset+8, cb.z, true); offset += 12;
+      [a,b,c].forEach(function(v){
+        dv.setFloat32(offset, v.x, true); dv.setFloat32(offset+4, v.y, true); dv.setFloat32(offset+8, v.z, true); offset += 12;
+      });
+      dv.setUint16(offset, 0, true); offset += 2;
+    }
+    return new Blob([buf], { type:'model/stl' });
+  }
+
+  function downloadBlob(blob, filename){
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(function(){ URL.revokeObjectURL(url); }, 2000);
+  }
+
+  exportStlBtn.addEventListener('click', function(){
+    if(!state.currentObject || state.isPoints) return;
+    var blob = exportSTLBlob(state.currentObject.geometry);
+    downloadBlob(blob, 'Meshcrafter-export.stl');
+  });
+
+  downloadOrigBtn.addEventListener('click', function(){
+    if(!state.lastRawBuffer) return;
+    var blob = new Blob([state.lastRawBuffer]);
+    downloadBlob(blob, 'Meshcrafter-source.' + state.lastRawExt);
+  });
+
+  wireBtn.addEventListener('click', function(){
+    wireBtn.classList.toggle('on');
+    if(state.currentObject && state.currentObject.material){
+      state.currentObject.material.wireframe = wireBtn.classList.contains('on');
+    }
+  });
+  resetViewBtn.addEventListener('click', function(){
+    if(state.currentObject) fitViewTo(state.currentObject);
+  });
+
+  /* ============================================================
+     NETWORKING — Hugging Face Inference
+  ============================================================ */
+  function endpointFor(idOrUrl){
+    var v = idOrUrl.trim();
+    if(v.indexOf('http://') === 0 || v.indexOf('https://') === 0) return v;
+    return 'https://router.huggingface.co/hf-inference/models/' + v;
+  }
+
+  function friendlyHttpError(status, bodyText){
+    if(status === 503) return 'The model is still loading on Hugging Face\u2019s servers. Wait a moment and try again.';
+    if(status === 401 || status === 403) return 'Hugging Face rejected the API key. Check it\u2019s correct and has inference access.';
+    if(status === 404) return 'Model or endpoint not found. Check the id or URL.';
+    if(status === 429) return 'Rate limited by Hugging Face. Wait a moment and try again.';
+    var snippet = bodyText ? (' — ' + bodyText.slice(0,160)) : '';
+    return 'Request failed with status ' + status + snippet;
+  }
+
+  function runInference(url, apiKey, body, contentType){
+    var headers = { 'Authorization': 'Bearer ' + apiKey };
+    if(contentType) headers['Content-Type'] = contentType;
+    return fetch(url, { method:'POST', headers: headers, body: body })
+      .then(function(resp){
+        return resp.arrayBuffer().then(function(buf){
+          if(!resp.ok){
+            var text = '';
+            try { text = new TextDecoder().decode(new Uint8Array(buf)); } catch(e){}
+            throw new Error(friendlyHttpError(resp.status, text));
+          }
+          return buf;
+        });
+      });
+  }
+
+  function extForBuffer(buffer){
+    var bytes = new Uint8Array(buffer.slice(0, 4));
+    var s = String.fromCharCode(bytes[0], bytes[1], bytes[2], bytes[3]);
+    if(s === 'glTF') return 'glb';
+    return 'bin';
+  }
+
+  function handleResult(statusEl, buffer){
+    var parsed = detectAndParse(buffer);
+    showModel(parsed.geometry, parsed.isPointCloud, extForBuffer(buffer), buffer);
+    setStatus(statusEl, 'ok', 'Model loaded — ' + (parsed.isPointCloud ? 'point cloud' : 'mesh') + ' ready in the viewport.');
+  }
+
+  /* ---------- Text tab ---------- */
+  genTextBtn.addEventListener('click', function(){
+    var key = apiKeyInput.value.trim();
+    var prompt = textPrompt.value.trim();
+    var model = textModel.value.trim();
+    if(!key){ setStatus(textStatus, 'error', 'Enter your Hugging Face API key first.'); return; }
+    if(!prompt){ setStatus(textStatus, 'error', 'Describe what you want to generate.'); return; }
+    if(!model){ setStatus(textStatus, 'error', 'Enter a model repo id or endpoint URL.'); return; }
+
+    genTextBtn.disabled = true;
+    setStatus(textStatus, 'loading', 'Sending prompt to ' + model + '…');
+    modePill.textContent = 'generating…';
+
+    runInference(endpointFor(model), key, JSON.stringify({ inputs: prompt }), 'application/json')
+      .then(function(buf){ handleResult(textStatus, buf); })
+      .catch(function(err){ setStatus(textStatus, 'error', err.message); modePill.textContent = 'error'; })
+      .finally(function(){ genTextBtn.disabled = false; });
+  });
+
+  /* ---------- Image tab ---------- */
+  function wireDropzone(dz, input, onFile){
+    dz.addEventListener('click', function(){ input.click(); });
+    dz.addEventListener('dragover', function(e){ e.preventDefault(); dz.classList.add('drag'); });
+    dz.addEventListener('dragleave', function(){ dz.classList.remove('drag'); });
+    dz.addEventListener('drop', function(e){
+      e.preventDefault(); dz.classList.remove('drag');
+      if(e.dataTransfer.files && e.dataTransfer.files[0]) onFile(e.dataTransfer.files[0]);
+    });
+    input.addEventListener('change', function(){
+      if(input.files && input.files[0]) onFile(input.files[0]);
+    });
+  }
+
+  wireDropzone(imageDropzone, imageFile, function(file){
+    pendingImageFile = file;
+    imageFname.textContent = file.name;
+    genImageBtn.disabled = false;
+  });
+
+  genImageBtn.addEventListener('click', function(){
+    var key = apiKeyInput.value.trim();
+    var model = imageModel.value.trim();
+    if(!key){ setStatus(imageStatus, 'error', 'Enter your Hugging Face API key first.'); return; }
+    if(!pendingImageFile){ setStatus(imageStatus, 'error', 'Choose an image first.'); return; }
+    if(!model){ setStatus(imageStatus, 'error', 'Enter a model repo id or endpoint URL.'); return; }
+
+    genImageBtn.disabled = true;
+    setStatus(imageStatus, 'loading', 'Sending image to ' + model + '…');
+    modePill.textContent = 'generating…';
+
+    runInference(endpointFor(model), key, pendingImageFile, pendingImageFile.type || 'application/octet-stream')
+      .then(function(buf){ handleResult(imageStatus, buf); })
+      .catch(function(err){ setStatus(imageStatus, 'error', err.message); modePill.textContent = 'error'; })
+      .finally(function(){ genImageBtn.disabled = false; });
+  });
+
+  /* ---------- Upload tab ---------- */
+  function loadLocalFile(file){
+    var reader = new FileReader();
+    reader.onload = function(){
+      try {
+        var buf = reader.result;
+        var parsed = detectAndParse(buf);
+        var ext = (file.name.split('.').pop() || 'bin').toLowerCase();
+        showModel(parsed.geometry, parsed.isPointCloud, ext, buf);
+        setStatus(uploadStatus, 'ok', file.name + ' loaded into the viewport.');
+      } catch(err){
+        setStatus(uploadStatus, 'error', err.message);
+      }
+    };
+    reader.onerror = function(){ setStatus(uploadStatus, 'error', 'Could not read that file.'); };
+    reader.readAsArrayBuffer(file);
+  }
+
+  wireDropzone(uploadDropzone, uploadFile, function(file){
+    pendingUploadFile = file;
+    uploadFname.textContent = file.name;
+    refineBtn.disabled = false;
+    // switch to upload tab if not already there
+    var tab = document.querySelector('.tab[data-mode="upload"]');
+    if(tab && !tab.classList.contains('active')) tab.click();
+    loadLocalFile(file);
+  });
+
+  refineBtn.addEventListener('click', function(){
+    var key = apiKeyInput.value.trim();
+    var model = uploadModel.value.trim();
+    if(!key){ setStatus(uploadStatus, 'error', 'Enter your Hugging Face API key first.'); return; }
+    if(!pendingUploadFile){ setStatus(uploadStatus, 'error', 'Load a file first.'); return; }
+    if(!model){ setStatus(uploadStatus, 'error', 'Enter a model repo id or endpoint URL to send it to.'); return; }
+
+    refineBtn.disabled = true;
+    setStatus(uploadStatus, 'loading', 'Sending file to ' + model + '…');
+    modePill.textContent = 'refining…';
+
+    runInference(endpointFor(model), key, pendingUploadFile, pendingUploadFile.type || 'application/octet-stream')
+      .then(function(buf){ handleResult(uploadStatus, buf); })
+      .catch(function(err){ setStatus(uploadStatus, 'error', err.message); modePill.textContent = 'error'; })
+      .finally(function(){ refineBtn.disabled = false; });
+  });
+
+  /* ---------- Global viewport drop ---------- */
+  ['dragover','drop'].forEach(function(evt){
+    viewportEl.addEventListener(evt, function(e){ e.preventDefault(); });
+  });
+  viewportEl.addEventListener('drop', function(e){
+    if(e.dataTransfer.files && e.dataTransfer.files[0]){
+      var tab = document.querySelector('.tab[data-mode="upload"]');
+      if(tab) tab.click();
+      pendingUploadFile = e.dataTransfer.files[0];
+      uploadFname.textContent = pendingUploadFile.name;
+      refineBtn.disabled = false;
+      loadLocalFile(pendingUploadFile);
+    }
+  });
+
+})();
+</script>
+</body>
+</html>
