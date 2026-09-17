@@ -17,7 +17,8 @@ result, and export a clean STL for CAD or 3D printing.
 # I will revisit this in 3 months.
 
 <p><small><em>
-Note: most text-to-3D models are too heavy for free HF inference and require custom runtimes, GPUs, or external tools such as Blender or ComfyUI.
+  Note: As of 9/16/2026, Text‑to‑3D Models Don’t Have HF Inference Support.  Text‑to‑3D models (Zero123, Shap‑E, LGM, TRELLIS, LLaMA‑Mesh, HY‑Motion, etc.) are:  1. Too heavy for HF free/hosted inference.  Most require: 8–24 GB VRAM, Multi‑stage pipelines (depth → NeRF → mesh → cleanup), GPU‑resident marching cubes or mesh extraction, HF Inference API doesn’t support these pipelines.  2. Many require external engines, examples: Blender (LLaMA‑Mesh, BlenderLLM), ComfyUI (TripoSR pipelines), Custom CUDA kernels (Zero123, LGM), HF cannot host these.  3. Some models are research-only: TRELLIS, HY‑Motion, Arbor, MeshGPT-preview — all require custom runtimes.
+ smaller
 </em></small></p>
 
 - **Text** — prompt a text-to-3D model
